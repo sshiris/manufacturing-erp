@@ -1,5 +1,5 @@
-\set product_id 1
-\set order_qty 5
+\set product_id 
+\set order_qty 
 with component_availability as (
     select items.name,
 bom_item.quantity,

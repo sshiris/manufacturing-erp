@@ -1,6 +1,5 @@
 from fastapi.testclient import TestClient
 from backend.main import app
-from backend.services.availability import calculate_availability
 
 client = TestClient(app)
 
@@ -12,7 +11,7 @@ def test_negative_order_qty():
                            })
     assert response.status_code == 422
     
-def test_nonexistent_product_id():
+def test_nonexistent_product_id(reset_test_database):
     response = client.post("/availability-check",
                            json={
                                "product_id": 9999,
@@ -21,7 +20,7 @@ def test_nonexistent_product_id():
     assert response.status_code == 404
     assert response.json()["detail"] == "item does not exist"
     
-def test_nonexistent_product_in_bom():
+def test_nonexistent_product_in_bom(reset_test_database):
     response = client.post("/availability-check",
                            json={
                                "product_id": 2,

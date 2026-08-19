@@ -1,12 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 import psycopg
-from dotenv import load_dotenv
-import os
-
+from backend.config import (
+DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DATABASE_NAME
+)
 from backend.services.availability import calculate_availability
 
-load_dotenv()
 
 app = FastAPI()
 
@@ -16,11 +15,11 @@ class AvailabilityRequest(BaseModel):
     
 def get_connection():
     return psycopg.connect(
-        host = os.getenv("DB_HOST"),
-        port = int(os.getenv("DB_PORT")),
-        dbname = os.getenv("DB_NAME"),
-        user = os.getenv("DB_USER"),
-        password = os.getenv("DB_PASSWORD")
+        host = DB_HOST,
+        port = DB_PORT,
+        dbname = DATABASE_NAME,
+        user = DB_USER,
+        password = DB_PASSWORD
     )
 
     
