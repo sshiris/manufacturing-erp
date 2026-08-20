@@ -99,4 +99,95 @@ def verify_availability_request(request: AvailabilityRequest):
         "components": result,
         "can_fulfill": can_fulfill
     }
+
+@app.post("/reserve")
+def reserve_inventory(request: AvailabilityRequest):
+    product_id = request.product_id
+    order_qty = request.order_qty
     
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                ''' 
+                select id from items
+                where id = %s
+                ''', (product_id,))
+            product = cur.fetchone()
+            if product is None:
+                raise HTTPException(status_code=404, detail="item does not exist")
+            cur.execute('''
+                        select parent_id from bom_item
+                        where parent_id = %s
+                        limit 1
+                         ''',(product_id,))
+            bom = cur.fetchone()
+            if bom is None:
+                raise HTTPException(status_code=404, detail="item does not exist in bom")
+            cur.execute(
+                '''
+                select
+                    bom_item.component_id as component_id,
+                    items.name as name,
+                    bom_item.quantity as quantity,
+                    inventory.quantity_on_hand as quantity_on_hand,
+                    inventory.quantity_reserved as quantity_reserved,
+                    inventory.item_id as inventory_item_id
+                from bom_item
+                join items
+                    on bom_item.component_id = items.id
+                left join inventory
+                    on bom_item.component_id = inventory.item_id
+                where bom_item.parent_id = %s
+                for update of inventory
+                ''', (product_id,))
+            components = cur.fetchall()
+            new_components = []
+            for component in components:
+                component_id = component[0]
+                component_name = component[1]
+                bom_quantity = component[2]
+                quantity_on_hand = component[3]
+                old_quantity_reserved = component[4]
+                inventory_item_id = component[5]
+                
+                if inventory_item_id is None:
+                    raise HTTPException(
+                        status_code = 409,
+                        detail = f'No inventory record for component {component_name} (ID: {component_id})'
+                    )
+                
+                availability = calculate_availability(
+                    bom_quantity=bom_quantity,
+                    quantity_on_hand=quantity_on_hand,
+                    quantity_reserved=old_quantity_reserved,
+                    order_qty=order_qty
+                )
+                
+                quantity_shortage = availability["quantity_shortage"]
+                if quantity_shortage > 0:
+                    raise HTTPException(status_code=409, detail=f'Not enough inventory for component {component_name} (ID: {component_id}). Shortage: { quantity_shortage}')
+                
+                new_components.append(
+                    {
+                        "component_id": component_id,
+                        "name": component_name,
+                        "old_quantity_reserved": old_quantity_reserved,
+                        "quantity_on_hand": quantity_on_hand,
+                        "quantity_required": availability["quantity_required"],
+                    }
+                )
+            for component in new_components:
+                component_id = component["component_id"]
+                quantity_required = component["quantity_required"]
+                cur.execute(
+                    '''
+                    update inventory
+                    set quantity_reserved = quantity_reserved + %s
+                    where item_id = %s
+                    ''',
+                    (quantity_required, component_id)
+                    )
+            return {
+                "message": f"Inventory reserved for product {product_id} with order quantity {order_qty}.",
+                "components": new_components
+            }
