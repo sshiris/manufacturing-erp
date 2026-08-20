@@ -123,6 +123,24 @@ def reserve_inventory(request: AvailabilityRequest):
             bom = cur.fetchone()
             if bom is None:
                 raise HTTPException(status_code=404, detail="item does not exist in bom")
+            cur.execute('''
+                        select
+                            bom_item.component_id as component_id,
+                            inventory.item_id as inventory_item_id
+                        from bom_item
+                        left join inventory
+                            on bom_item.component_id = inventory.item_id
+                        where bom_item.parent_id = %s
+                            ''', (product_id,))
+            rows = cur.fetchall()
+            for row in rows:
+                inventory_item_id = row[1]
+                component_id = row[0]
+                if inventory_item_id is None:
+                    raise HTTPException(
+                        status_code = 409,
+                        detail = f'No inventory record for component ID: {component_id}'
+                    )
             cur.execute(
                 '''
                 select
@@ -130,12 +148,11 @@ def reserve_inventory(request: AvailabilityRequest):
                     items.name as name,
                     bom_item.quantity as quantity,
                     inventory.quantity_on_hand as quantity_on_hand,
-                    inventory.quantity_reserved as quantity_reserved,
-                    inventory.item_id as inventory_item_id
+                    inventory.quantity_reserved as quantity_reserved
                 from bom_item
                 join items
                     on bom_item.component_id = items.id
-                left join inventory
+                join inventory
                     on bom_item.component_id = inventory.item_id
                 where bom_item.parent_id = %s
                 for update of inventory
@@ -148,13 +165,6 @@ def reserve_inventory(request: AvailabilityRequest):
                 bom_quantity = component[2]
                 quantity_on_hand = component[3]
                 old_quantity_reserved = component[4]
-                inventory_item_id = component[5]
-                
-                if inventory_item_id is None:
-                    raise HTTPException(
-                        status_code = 409,
-                        detail = f'No inventory record for component {component_name} (ID: {component_id})'
-                    )
                 
                 availability = calculate_availability(
                     bom_quantity=bom_quantity,
