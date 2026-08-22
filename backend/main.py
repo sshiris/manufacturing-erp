@@ -5,9 +5,11 @@ from backend.config import (
 DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DATABASE_NAME
 )
 from backend.services.availability import calculate_availability
-
+from backend.api.orders import router as orders_router
 
 app = FastAPI()
+
+app.include_router(orders_router)
 
 class AvailabilityRequest(BaseModel):
     product_id: int = Field(gt=0)
