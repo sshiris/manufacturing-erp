@@ -1,4 +1,4 @@
-truncate table bom_item, inventory, items restart identity;
+truncate table orders, bom_item, inventory, items restart identity;
 insert into items(name)
 values
     ('DESK'),
@@ -42,3 +42,25 @@ values
     500,
     100)
 ;
+
+insert into orders(
+    product_id,
+    quantity,
+    unit_price
+)
+values
+    (
+        (select id from items where name = 'DESK'),
+        1,
+        250.00
+    ),
+    (
+        (select id from items where name = 'DESK'),
+        7,
+        250.00
+    ),
+    (
+        (select id from items where name = 'CHAIR'),
+        1,
+        100.00
+    );

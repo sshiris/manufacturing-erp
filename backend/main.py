@@ -24,6 +24,9 @@ def get_connection():
         password = DB_PASSWORD
     )
 
+class ReservationRequest(BaseModel):
+    order_id: int = Field(gt=0)
+
     
 @app.post("/availability-check")
 def verify_availability_request(request: AvailabilityRequest):
@@ -103,103 +106,89 @@ def verify_availability_request(request: AvailabilityRequest):
     }
 
 @app.post("/reserve")
-def reserve_inventory(request: AvailabilityRequest):
-    product_id = request.product_id
-    order_qty = request.order_qty
-    
+def reserve_inventory(request: ReservationRequest):
+    order_id = request.order_id
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                ''' 
-                select id from items
-                where id = %s
-                ''', (product_id,))
-            product = cur.fetchone()
-            if product is None:
-                raise HTTPException(status_code=404, detail="item does not exist")
             cur.execute('''
-                        select parent_id from bom_item
-                        where parent_id = %s
-                        limit 1
-                         ''',(product_id,))
-            bom = cur.fetchone()
-            if bom is None:
-                raise HTTPException(status_code=404, detail="item does not exist in bom")
+                        select product_id, quantity, status from orders
+                        where id = %s
+                        ''', (order_id,))
+            order = cur.fetchone()
+            if order is None:
+                raise HTTPException(status_code = 404, detail="order not found")
+            product_id = order[0]
+            order_qty = order[1]
+            order_status = order[2]
+            
             cur.execute('''
                         select
-                            bom_item.component_id as component_id,
-                            inventory.item_id as inventory_item_id
+                            bom_item.component_id,
+                            items.name,
+                            bom_item.quantity as bom_quantity
                         from bom_item
-                        left join inventory
-                            on bom_item.component_id = inventory.item_id
+                        join items
+                            on bom_item.component_id = items.id
                         where bom_item.parent_id = %s
-                            ''', (product_id,))
-            rows = cur.fetchall()
-            for row in rows:
-                inventory_item_id = row[1]
-                component_id = row[0]
-                if inventory_item_id is None:
-                    raise HTTPException(
-                        status_code = 409,
-                        detail = f'No inventory record for component ID: {component_id}'
-                    )
-            cur.execute(
-                '''
-                select
-                    bom_item.component_id as component_id,
-                    items.name as name,
-                    bom_item.quantity as quantity,
-                    inventory.quantity_on_hand as quantity_on_hand,
-                    inventory.quantity_reserved as quantity_reserved
-                from bom_item
-                join items
-                    on bom_item.component_id = items.id
-                join inventory
-                    on bom_item.component_id = inventory.item_id
-                where bom_item.parent_id = %s
-                for update of inventory
-                ''', (product_id,))
-            components = cur.fetchall()
-            new_components = []
-            for component in components:
+                        ''', (product_id,))
+            bom_components = cur.fetchall()
+            
+            if len(bom_components) == 0:
+                raise HTTPException(status_code=404, detail="components not found")
+            
+            component_ids = [component[0] for component in bom_components]
+            
+            cur.execute('''
+                        select item_id, quantity_on_hand, quantity_reserved as old_quantity_reserved
+                        from inventory
+                        where item_id = ANY(%s)
+                        for update
+                        ''', (component_ids,))
+            inventory_rows = cur.fetchall()
+        
+            inventory_by_id = { row[0]: {
+                "quantity_on_hand": row[1],
+                "old_quantity_reserved": row[2]
+            } for row in inventory_rows}
+            
+            components_to_reserve = []
+            
+            for component in bom_components:
                 component_id = component[0]
                 component_name = component[1]
                 bom_quantity = component[2]
-                quantity_on_hand = component[3]
-                old_quantity_reserved = component[4]
+                
+                inventory = inventory_by_id.get(component_id)
+                if inventory is None:
+                    raise HTTPException(status_code=409,
+                                        detail=f"inventory record not found for component {component_name}")
+                
                 
                 availability = calculate_availability(
                     bom_quantity=bom_quantity,
-                    quantity_on_hand=quantity_on_hand,
-                    quantity_reserved=old_quantity_reserved,
+                    quantity_on_hand=inventory["quantity_on_hand"],
+                    quantity_reserved=inventory["old_quantity_reserved"],
                     order_qty=order_qty
                 )
                 
-                quantity_shortage = availability["quantity_shortage"]
-                if quantity_shortage > 0:
-                    raise HTTPException(status_code=409, detail=f'Not enough inventory for component {component_name} (ID: {component_id}). Shortage: { quantity_shortage}')
+                if availability["quantity_shortage"] > 0:
+                    raise HTTPException(status_code=409, detail=f'Insufficient inventory for component {component_id}')
                 
-                new_components.append(
+                components_to_reserve.append(
                     {
                         "component_id": component_id,
-                        "name": component_name,
-                        "old_quantity_reserved": old_quantity_reserved,
-                        "quantity_on_hand": quantity_on_hand,
-                        "quantity_required": availability["quantity_required"],
+                        "quantity_required": availability["quantity_required"]
                     }
                 )
-            for component in new_components:
-                component_id = component["component_id"]
-                quantity_required = component["quantity_required"]
-                cur.execute(
-                    '''
-                    update inventory
-                    set quantity_reserved = quantity_reserved + %s
-                    where item_id = %s
-                    ''',
-                    (quantity_required, component_id)
-                    )
+            
+            for component in components_to_reserve:
+                cur.execute('''
+                            update inventory
+                            set quantity_reserved = quantity_reserved + %s
+                            where item_id = %s''', (component["quantity_required"], component["component_id"]))
+            
             return {
-                "message": f"Inventory reserved for product {product_id} with order quantity {order_qty}.",
-                "components": new_components
+                "message": f"Inventory reserved for order {order_id}",
+                "order_id": order_id,
+                "components": components_to_reserve
             }
