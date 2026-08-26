@@ -113,6 +113,7 @@ def reserve_inventory(request: ReservationRequest):
             cur.execute('''
                         select product_id, quantity, status from orders
                         where id = %s
+                        for update
                         ''', (order_id,))
             order = cur.fetchone()
             if order is None:
@@ -120,6 +121,8 @@ def reserve_inventory(request: ReservationRequest):
             product_id = order[0]
             order_qty = order[1]
             order_status = order[2]
+            if order_status != "pending":
+                raise HTTPException(status_code=409, detail="order cannot be reserved in its current status")
             
             cur.execute('''
                         select
@@ -187,8 +190,16 @@ def reserve_inventory(request: ReservationRequest):
                             set quantity_reserved = quantity_reserved + %s
                             where item_id = %s''', (component["quantity_required"], component["component_id"]))
             
+            cur.execute('''
+                        update orders
+                        set status = 'reserved'
+                        where id = %s
+                        returning status
+                        ''', (order_id,))
+            order_status = cur.fetchone()[0]
             return {
                 "message": f"Inventory reserved for order {order_id}",
                 "order_id": order_id,
-                "components": components_to_reserve
+                "components": components_to_reserve,
+                "order_status": order_status
             }

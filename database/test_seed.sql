@@ -46,21 +46,31 @@ values
 insert into orders(
     product_id,
     quantity,
-    unit_price
+    unit_price,
+    status
 )
 values
     (
         (select id from items where name = 'DESK'),
         1,
-        250.00
+        250.00,
+        'pending'
     ),
     (
         (select id from items where name = 'DESK'),
         7,
-        250.00
+        250.00,
+        'pending'
     ),
     (
         (select id from items where name = 'CHAIR'),
         1,
-        100.00
+        100.00,
+        'pending'
+    ),
+    (
+        (select id from items where name = 'DESK'),
+        1,
+        250.00,
+        'reserved'
     );
