@@ -73,3 +73,38 @@ def create_order(request: OrderCreateRequest):
             "estimated_delivery_date": order[6]
         }
     }
+    
+@router.get("/orders/{order_id}")
+def get_order(order_id):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                select
+                    orders.id,
+                    orders.product_id,
+                    items.name as product_name,
+                    orders.quantity,
+                    orders.unit_price,
+                    orders.unit_price * orders.quantity as total_price,
+                    orders.status,
+                    orders.created_at,
+                    orders.estimated_delivery_date
+                from orders
+                join items
+                    on orders.product_id = items.id
+                where orders.id = %s
+                ''', (order_id,))
+            order = cur.fetchone()
+            if order is None:
+                raise HTTPException(status_code= 404, detail="Order not found")
+            return {
+                "id": order[0],
+                "product_id": order[1],
+                "product_name": order[2],
+                "quantity": order[3],
+                "unit_price": order[4],
+                "total_price": order[5],
+                "status": order[6],
+                "created_at": order[7],
+                "estimated_delivery_date": order[8]
+            }
