@@ -5,6 +5,7 @@ from decimal import Decimal
 import psycopg
 from backend.config import (
     DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DATABASE_NAME)
+from backend.database import get_connection
 
 router = APIRouter()
 
@@ -14,15 +15,6 @@ class OrderCreateRequest(BaseModel):
     quantity: Decimal = Field(gt=0)
     unit_price: Decimal = Field(ge=0)
     estimated_delivery_date: datetime | None = None
-    
-def get_connection():
-    return psycopg.connect(
-        host = DB_HOST,
-        port = DB_PORT,
-        dbname = DATABASE_NAME,
-        user = DB_USER,
-        password = DB_PASSWORD
-    )
 
 @router.post("/orders")
 def create_order(request: OrderCreateRequest):
