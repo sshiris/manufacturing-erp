@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 from backend.main import app
+from backend.database import get_connection
 
 client = TestClient(app)
 def test_get_order_success(reset_test_database):
@@ -19,4 +20,26 @@ def test_get_order_not_found(reset_test_database):
     assert response.status_code == 404
     data = response.json()
     assert data["detail"] == "Order not found"
-    
+
+def test_get_orders_success(reset_test_database):
+    response = client.get("/orders")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) > 0
+    first_order = data[0]
+    assert "id" in first_order
+    assert "product_name" in first_order
+    assert "quantity" in first_order
+    assert "total_price" in first_order
+    assert "status" in first_order
+    assert "created_at" in first_order
+    assert "estimated_delivery_date" in first_order
+def test_get_orders_empty(reset_test_database):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM orders')
+    response = client.get("/orders")
+    assert response.status_code == 200
+    data = response.json()
+    assert data == []

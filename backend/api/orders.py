@@ -108,3 +108,35 @@ def get_order(order_id):
                 "created_at": order[7],
                 "estimated_delivery_date": order[8]
             }
+@router.get("/orders")
+def get_orders():
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                select
+                    orders.id,
+                    items.name as product_name,
+                    orders.quantity,
+                    orders.unit_price * orders.quantity as total_price,
+                    orders.status,
+                    orders.created_at,
+                    orders.estimated_delivery_date
+                from orders
+                join items
+                    on orders.product_id = items.id
+                order by orders.created_at desc
+                ''')
+            orders = cur.fetchall()
+            
+            return [
+                {
+                    "id": order[0],
+                    "product_name": order[1],
+                    "quantity": order[2],
+                    "total_price": order[3],
+                    "status": order[4],
+                    "created_at": order[5],
+                    "estimated_delivery_date": order[6]
+                }
+                for order in orders
+            ]
