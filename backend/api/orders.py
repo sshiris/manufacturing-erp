@@ -6,6 +6,7 @@ import psycopg
 from backend.config import (
     DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DATABASE_NAME)
 from backend.database import get_connection
+from typing import Literal
 
 router = APIRouter()
 
@@ -140,3 +141,55 @@ def get_orders():
                 }
                 for order in orders
             ]
+class UpdateOrderStatusRequest(BaseModel):
+    status: Literal["in_progress", "completed"]
+    
+@router.patch("/orders/{order_id}/status")
+def update_order_status(order_id: int, request: UpdateOrderStatusRequest):
+    status = request.status
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                select id, status from orders
+                where id = %s
+                for update
+                ''', (order_id,))
+            
+            order = cur.fetchone()
+            if order is None:
+                raise HTTPException(status_code=404, detail="Order not found")
+            
+            current_status = order[1]
+            
+            allowed_transitions = {
+                "pending": [],
+                "reserved": ["in_progress"],
+                "in_progress": ["completed"],
+                "completed": []
+            }
+            
+            if status not in allowed_transitions[current_status]:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"can not change order status from {current_status} to {status}"
+                )
+            
+            cur.execute(
+                '''
+                update orders
+                set status = %s
+                where id = %s
+                returning status 
+                ''', (status, order_id)
+            )
+            
+            updated_order = cur.fetchone()[0]
+            
+            return {
+                "status": updated_order,
+                "order_id": order_id,
+                "message": f"order status updated to {updated_order}"
+            }
+            
+            
+            

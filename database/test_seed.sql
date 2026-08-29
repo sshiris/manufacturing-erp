@@ -73,4 +73,16 @@ values
         1,
         250.00,
         'reserved'
+    ),
+    (
+        (select id from items where name = 'DESK'),
+        1,
+        250.00,
+        'in_progress'
+    ),
+    (
+        (select id from items where name = 'DESK'),
+        1,
+        250.00,
+        'completed'
     );

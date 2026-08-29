@@ -43,3 +43,48 @@ def test_get_orders_empty(reset_test_database):
     assert response.status_code == 200
     data = response.json()
     assert data == []
+    
+def test_update_order_status_reserved_to_in_progress(reset_test_database):
+    response = client.patch(
+        "/orders/4/status",
+        json={"status": "in_progress"}
+    )
+    assert response.status_code == 200
+    
+    data = response.json()
+    assert data["status"] == "in_progress"
+    assert data["order_id"] == 4
+    
+def test_update_order_status_in_progress_to_completed(reset_test_database):
+    response = client.patch(
+    "/orders/5/status",
+    json = {"status": "completed"}
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "completed"
+    assert data["order_id"] == 5
+    
+def test_update_order_status_pending_to_in_progress_not_allowed(reset_test_database):
+    response = client.patch(
+        "/orders/1/status",
+        json={"status": "in_progress"}
+    )
+    assert response.status_code == 409
+   
+def test_update_order_status_invalid_status(reset_test_database):
+    response = client.patch(
+        "/orders/1/status",
+        json={"status": "banana"}
+    )
+    assert response.status_code == 422
+    
+def test_update_order_status_order_not_found(reset_test_database):
+    response = client.patch(
+        "/orders/999/status",
+        json={"status": "in_progress"}
+    )
+    assert response.status_code == 404
+    data = response.json()
+    assert data["detail"] == "Order not found"
