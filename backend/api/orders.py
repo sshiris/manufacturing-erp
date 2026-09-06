@@ -191,5 +191,123 @@ def update_order_status(order_id: int, request: UpdateOrderStatusRequest):
                 "message": f"order status updated to {updated_order}"
             }
             
+@router.post("/orders/{order_id}/complete")
+def complete_order(order_id: int):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                '''
+                select
+                    id, status, product_id, quantity
+                from orders
+                where id = %s
+                for update
+                ''', (order_id,)                
+            )
+            order = cur.fetchone()
+            if order is None:
+                raise HTTPException(status_code=404, detail="Order not found")
             
+            product_id = order[2]
+            current_status = order[1]
+            order_quantity = order[3]
             
+            if current_status != "in_progress":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"can not complete order with status {current_status}"
+                )
+            
+            cur.execute(
+                '''
+                select 
+                    component_id,
+                    quantity
+                from bom_item
+                where parent_id = %s
+                ''', (product_id,)
+            )
+            bom_items = cur.fetchall()
+            if not bom_items:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No BOM items found for product {product_id}"
+                )
+            component_ids = [
+                item[0]
+                for item in bom_items
+            ]
+            cur.execute(
+                '''
+                select
+                    item_id,
+                    quantity_on_hand,
+                    quantity_reserved
+                from inventory
+                where item_id = any(%s)
+                for update''', (component_ids,)   
+            )
+            inventory_rows = cur.fetchall()
+            inventory_dict = {
+                row[0]:{
+                    "quantity_on_hand": row[1],
+                    "quantity_reserved": row[2]
+                }
+                for row in inventory_rows
+            }
+            components_to_consume = []
+            for component_id, bom_quantity in bom_items:
+                inventory = inventory_dict.get(component_id)
+                if inventory is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Inventory record not found for component {component_id}"
+                    )
+                quantity_required = bom_quantity * order_quantity
+                if inventory["quantity_on_hand"] < quantity_required:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"not enough on_hand inventory for component {component_id}. required: {quantity_required}, on_hand: {inventory['quantity_on_hand']}"
+                    )
+                    
+                if inventory["quantity_reserved"] < quantity_required:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"not enough reserved inventory for component {component_id}. required: {quantity_required}, reserved: {inventory['quantity_reserved']}"
+                    )
+                components_to_consume.append(
+                    {
+                        "component_id": component_id,
+                        "quantity_required": quantity_required
+                    }
+                )
+                
+            for component in components_to_consume:
+                cur.execute(
+                    '''
+                    update inventory
+                    set quantity_on_hand = quantity_on_hand - %s,
+                        quantity_reserved = quantity_reserved - %s
+                    where item_id = %s''', (
+                        component["quantity_required"],
+                        component["quantity_required"],
+                        component["component_id"]
+                    )
+                )
+                
+            cur.execute(
+                '''
+                update orders
+                set status = 'completed'
+                where id = %s
+                returning status
+                ''', 
+                (order_id,)
+            )
+            
+            updated_order_status = cur.fetchone()[0]
+            
+            return {
+                "order_id": order_id,
+                "status": updated_order_status
+            }

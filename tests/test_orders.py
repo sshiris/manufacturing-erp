@@ -88,3 +88,29 @@ def test_update_order_status_order_not_found(reset_test_database):
     assert response.status_code == 404
     data = response.json()
     assert data["detail"] == "Order not found"
+    
+def test_complete_order_success(reset_test_database):
+    response = client.post("orders/5/complete")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "completed"
+    
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                '''
+                select quantity_on_hand, quantity_reserved
+                from inventory
+                where inventory.item_id in (3,4,5)
+                order by item_id'''
+            )
+            row = cur.fetchall()
+            assert row[0][0] == 46
+            assert row[0][1] == 6
+            
+            assert row[1][0] == 5
+            assert row[1][1] == 0
+            
+            assert row[2][0] == 492
+            assert row[2][1] == 92
+            

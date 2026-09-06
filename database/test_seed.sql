@@ -37,7 +37,7 @@ values
     10),
     ((select id from items where name = 'TABLETOP'),
     6,
-    0),
+    1),
     ((select id from items where name = 'SCREW'),
     500,
     100)
