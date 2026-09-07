@@ -191,3 +191,32 @@ def reserve_inventory(request: ReservationRequest):
                 "components": components_to_reserve,
                 "order_status": order_status
             }
+            
+@router.get("/inventory")
+def get_inventory():
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute('''
+                        select 
+                            inventory.item_id,
+                            items.name,
+                            inventory.quantity_on_hand,
+                            inventory.quantity_reserved
+                        from inventory
+                        join items on inventory.item_id = items.id
+                        ''')
+            rows = cur.fetchall()
+
+            inventory_list = [
+                {
+                    "item_id": row[0],
+                    "item_name": row[1],
+                    "quantity_on_hand": row[2],
+                    "quantity_reserved": row[3],
+                    "quantity_available": row[2] - row[3]
+                }
+                for row in rows
+            ]
+            
+            return inventory_list
+                        
