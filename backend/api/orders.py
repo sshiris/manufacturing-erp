@@ -142,11 +142,10 @@ def get_orders():
                 for order in orders
             ]
 class UpdateOrderStatusRequest(BaseModel):
-    status: Literal["in_progress", "completed"]
+    status: Literal["in_progress"]
     
-@router.patch("/orders/{order_id}/status")
-def update_order_status(order_id: int, request: UpdateOrderStatusRequest):
-    status = request.status
+@router.post("/orders/{order_id}/start")
+def update_order_status(order_id: int):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute('''
@@ -161,17 +160,10 @@ def update_order_status(order_id: int, request: UpdateOrderStatusRequest):
             
             current_status = order[1]
             
-            allowed_transitions = {
-                "pending": [],
-                "reserved": ["in_progress"],
-                "in_progress": ["completed"],
-                "completed": []
-            }
-            
-            if status not in allowed_transitions[current_status]:
+            if current_status != "reserved":
                 raise HTTPException(
                     status_code=409,
-                    detail=f"can not change order status from {current_status} to {status}"
+                    detail=f"order status {current_status} cannot be updated to in_progress"
                 )
             
             cur.execute(
@@ -180,7 +172,7 @@ def update_order_status(order_id: int, request: UpdateOrderStatusRequest):
                 set status = %s
                 where id = %s
                 returning status 
-                ''', (status, order_id)
+                ''', ("in_progress", order_id)
             )
             
             updated_order = cur.fetchone()[0]
